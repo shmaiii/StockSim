@@ -349,7 +349,7 @@ class AlphaVantageClient:
                     extended_hours="false"
                 )
             elif interval.lower() == "1d":
-                data, _ = ts.get_daily(symbol=symbol, outputsize="full")
+                data, _ = ts.get_daily(symbol=symbol, outputsize="compact")
             elif interval.lower() == "1w":
                 data, _ = ts.get_weekly(symbol=symbol)
             elif interval.lower() == "1mo":

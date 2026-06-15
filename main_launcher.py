@@ -412,7 +412,7 @@ def main():
     print_demo_banner()
 
     # Load configuration
-    config_file_path = sys.argv[1] if len(sys.argv) > 1 else "configs/demo_config.yaml"
+    config_file_path = sys.argv[1] if len(sys.argv) > 1 else "configs/config.yaml"
     launcher_logger.info(f"Loading configuration from: {config_file_path}")
 
     try:

@@ -41,6 +41,9 @@ from agents.benchmark_traders.macd_trader import MACDTrader
 from agents.benchmark_traders.random_trader import RandomTrader
 from agents.benchmark_traders.bollinger_bands_trader import BollingerBandsTrader
 from agents.benchmark_traders.slma_trader import SLMATrader
+from agents.aml.market_maker_trader import AMLMarketMakerTrader
+from agents.aml.retail_trader import AMLRetailTrader
+from agents.aml.institutional_trader import AMLInstitutionalTrader
 from simulation.simulation_clock import SimulationClock
 from utils.logging_setup import setup_logger
 from utils.time_utils import parse_datetime_utc, interval_to_seconds
@@ -55,7 +58,10 @@ AGENT_TYPE_MAPPING = {
     "Random_Trader": RandomTrader,
     "Bollinger_Bands_Trader": BollingerBandsTrader,
     "SLMA_Trader": SLMATrader,
-    "HistoricalOrderTrader": HistoricalOrderTrader
+    "HistoricalOrderTrader": HistoricalOrderTrader,
+    "AML_Market_Maker": AMLMarketMakerTrader,
+    "AML_Retail_Trader": AMLRetailTrader,
+    "AML_Institutional_Trader": AMLInstitutionalTrader
 }
 
 log_dir = os.getenv("LOG_DIR", "logs")
@@ -130,6 +136,7 @@ def validate_configuration(config: Dict[str, Any]) -> List[str]:
         List of validation errors (empty if valid)
     """
     errors = []
+    exchange_mode = config.get("exchange_mode", "candle").lower()
 
     # Required sections validation
     required_sections = ["instruments", "agents", "simulation"]
@@ -156,14 +163,21 @@ def validate_configuration(config: Dict[str, Any]) -> List[str]:
                     errors.append(f"Missing required field '{field}' for instrument '{instrument}'")
 
             # Validate data source and symbol type combinations
-            data_source = inst_cfg.get("data_source", "")
+            data_source = inst_cfg.get("data_source", "").lower()
             symbol_type = inst_cfg.get("symbol_type", "")
 
-            if symbol_type == "crypto" and data_source not in ["alpha_vantage", "polygon"]:
-                errors.append(f"Invalid data source '{data_source}' for crypto symbol '{instrument}'. Use 'alpha_vantage' or 'polygon'")
+            if data_source == "synthetic" and exchange_mode == "candle":
+                errors.append(f"Synthetic data source for '{instrument}' is currently supported only in orderbook exchange_mode")
 
-            if symbol_type == "stock" and data_source not in ["polygon", "alpha_vantage"]:
-                errors.append(f"Invalid data source '{data_source}' for stock symbol '{instrument}'. Use 'polygon' or 'alpha_vantage'")
+            allowed_sources = ["polygon", "alpha_vantage"]
+            if exchange_mode != "candle":
+                allowed_sources.append("synthetic")
+
+            if symbol_type == "crypto" and data_source not in allowed_sources:
+                errors.append(f"Invalid data source '{data_source}' for crypto symbol '{instrument}'. Use one of: {', '.join(allowed_sources)}")
+
+            if symbol_type == "stock" and data_source not in allowed_sources:
+                errors.append(f"Invalid data source '{data_source}' for stock symbol '{instrument}'. Use one of: {', '.join(allowed_sources)}")
 
     # Agent configuration validation
     agents_config = config.get("agents", {})
@@ -224,7 +238,24 @@ def validate_configuration(config: Dict[str, Any]) -> List[str]:
 
     return errors
 
-def check_dependencies() -> List[str]:
+def config_needs_external_data_api(config: Dict[str, Any]) -> bool:
+    """Return True when the configured run needs Polygon or Alpha Vantage."""
+    exchange_mode = config.get("exchange_mode", "candle").lower()
+    exchanges_config = config.get("exchanges", {})
+
+    if exchange_mode == "candle":
+        return True
+
+    for inst_cfg in exchanges_config.values():
+        data_source = inst_cfg.get("data_source", "polygon").lower()
+
+        if data_source != "synthetic":
+            return True
+
+    return False
+
+
+def check_dependencies(config: Dict[str, Any]) -> List[str]:
     """
     Check system dependencies and API keys for demo readiness.
 
@@ -243,9 +274,9 @@ def check_dependencies() -> List[str]:
         if not os.getenv(var):
             issues.append(f"Missing required environment variable: {var} ({description})")
 
-    # Check for at least one data source API key
+    # Check for at least one data source API key only when the run uses external data.
     data_api_keys = ["POLYGON_API_KEY", "ALPHA_VANTAGE_API_KEY"]
-    if not any(os.getenv(key) for key in data_api_keys):
+    if config_needs_external_data_api(config) and not any(os.getenv(key) for key in data_api_keys):
         issues.append("At least one data source API key required: POLYGON_API_KEY or ALPHA_VANTAGE_API_KEY")
 
     # Check if output directories exist (for potential future use)
@@ -311,12 +342,16 @@ def generate_post_simulation_artifacts(config: Dict[str, Any]):
         for instrument in instruments:
             try:
                 inst_cfg = exchanges_config.get(instrument, {})
-                data_source = inst_cfg.get("data_source", "polygon")
+                data_source = inst_cfg.get("data_source", "polygon").lower()
                 symbol_type = inst_cfg.get("symbol_type", "stock")
                 interval = inst_cfg.get("candle_interval", "1d")
                 indicator_kwargs = inst_cfg.get("indicator_kwargs", {})
 
                 launcher_logger.info(f"📊 Generating artifacts for {instrument} ({symbol_type})...")
+
+                if data_source == "synthetic":
+                    launcher_logger.info(f"Skipping external chart/report generation for synthetic instrument {instrument}.")
+                    continue
 
                 # Initialize appropriate data client
                 if data_source == "alpha_vantage":
@@ -434,7 +469,7 @@ def main():
 
     # Check dependencies
     launcher_logger.info("Checking system dependencies...")
-    dependency_issues = check_dependencies()
+    dependency_issues = check_dependencies(config)
     if dependency_issues:
         launcher_logger.warning("Dependency check results:")
         for issue in dependency_issues:
@@ -533,7 +568,7 @@ def main():
             inst_cfg = exchanges_config.get(instrument, {})
 
             interval = inst_cfg.get("candle_interval", "1d")
-            data_source = inst_cfg.get("data_source", "polygon")
+            data_source = inst_cfg.get("data_source", "polygon").lower()
             symbol_type = inst_cfg.get("symbol_type", "stock")
             spread_factor = inst_cfg.get("spread_factor", 0.001)
 
@@ -577,7 +612,7 @@ def main():
         for instrument, exchange_id in instrument_exchange_map.items():
             inst_cfg = exchanges_config.get(instrument, {})
             trades_outfile = inst_cfg.get("trades_outfile", "")
-            data_source = inst_cfg.get("data_source", "polygon")
+            data_source = inst_cfg.get("data_source", "polygon").lower()
             symbol_type = inst_cfg.get("symbol_type", "stock")
             
             # News configuration
@@ -622,6 +657,10 @@ def main():
                 f"Started ExchangeAgent '{exchange_id}' for instrument '{instrument}' "
                 f"({symbol_type}) via {data_source} with warmup: {warmup_start_date} to {warmup_end_date}"
             )
+            if data_source == "synthetic":
+                launcher_logger.info(
+                    f"   • {instrument} is synthetic: prices will emerge from submitted orders and matched trades, not Polygon/Alpha data."
+                )
 
     launcher_logger.info("Waiting for exchange agents to initialize...")
     time.sleep(10)
@@ -680,6 +719,18 @@ def main():
             "std_dev_multiplier": params.get("std_dev_multiplier", 2.0),
             "position_size_pct": params.get("position_size_pct", 0.05),
             "action_interval_seconds": interval_to_seconds(params["action_interval"]) if "action_interval" in params else params.get("action_interval_seconds", 86400)
+        },
+        "AML_Market_Maker": lambda params: {
+            **params,
+            "action_interval_seconds": interval_to_seconds(params["action_interval"]) if "action_interval" in params else params.get("action_interval_seconds", 60)
+        },
+        "AML_Retail_Trader": lambda params: {
+            **params,
+            "action_interval_seconds": interval_to_seconds(params["action_interval"]) if "action_interval" in params else params.get("action_interval_seconds", 60)
+        },
+        "AML_Institutional_Trader": lambda params: {
+            **params,
+            "action_interval_seconds": interval_to_seconds(params["action_interval"]) if "action_interval" in params else params.get("action_interval_seconds", 300)
         },
     }
 

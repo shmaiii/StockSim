@@ -77,7 +77,7 @@ class ExchangeAgent(Agent):
             tickers: List of tickers for news feeds
             limit_news: Maximum number of news articles to fetch
             indicator_kwargs: Technical indicator configuration
-            data_source: Data source ("polygon" or "alpha_vantage")
+            data_source: Data source ("polygon", "alpha_vantage", or "synthetic")
             symbol_type: Symbol type ("stock" or "crypto")
             data_start_date: Start date for indicator data (ISO format: YYYY-MM-DD)
             data_end_date: End date for indicator data (ISO format: YYYY-MM-DD)
@@ -102,18 +102,26 @@ class ExchangeAgent(Agent):
         self.limit_news = limit_news
         self.data_source = data_source.lower()
         self.symbol_type = symbol_type.lower()
+        self.is_synthetic_data = self.data_source == "synthetic"
         
         # Initialize data clients for external feeds
-        self.polygon_client = PolygonClient()
-        self.alpha_vantage_client = AlphaVantageClient()
-        
-        # Set primary data client based on user preference
-        if self.data_source == "alpha_vantage":
-            self.client = self.alpha_vantage_client
-            self.logger.info(f"Initialized Alpha Vantage client for external data: {instrument}")
+        self.polygon_client = None
+        self.alpha_vantage_client = None
+
+        if self.is_synthetic_data:
+            self.client = None
+            self.logger.info(f"Synthetic data source selected for {instrument}; no external market data client initialized.")
         else:
-            self.client = self.polygon_client
-            self.logger.info(f"Initialized Polygon client for external data: {instrument}")
+            self.polygon_client = PolygonClient()
+            self.alpha_vantage_client = AlphaVantageClient()
+            
+            # Set primary data client based on user preference
+            if self.data_source == "alpha_vantage":
+                self.client = self.alpha_vantage_client
+                self.logger.info(f"Initialized Alpha Vantage client for external data: {instrument}")
+            else:
+                self.client = self.polygon_client
+                self.logger.info(f"Initialized Polygon client for external data: {instrument}")
         
         # Store warmup parameters for indicator initialization
         self.warmup_start_date = data_start_date
@@ -146,6 +154,11 @@ class ExchangeAgent(Agent):
 
     def _load_fundamental_data(self):
         """Load fundamental data (stocks only - not available for crypto)."""
+        if self.is_synthetic_data:
+            self.fundamentals = {}
+            self.logger.info(f"Synthetic data source selected; skipping external fundamentals for {self.instrument}")
+            return
+
         # Only load fundamentals for stocks, not crypto
         if self.symbol_type == "stock" and self.client:
             try:
@@ -177,6 +190,10 @@ class ExchangeAgent(Agent):
         This method loads historical candle data to initialize technical indicators
         with sufficient historical context before real-time trading begins.
         """
+        if self.is_synthetic_data:
+            self.logger.info(f"Synthetic data source selected; skipping external indicator warmup for {self.instrument}")
+            return
+
         if not self.warmup_start_date or not self.warmup_end_date:
             self.logger.info("No warmup dates specified, skipping indicator warmup")
             return
@@ -194,6 +211,10 @@ class ExchangeAgent(Agent):
             resolution: Time resolution (e.g., "1m", "15m", "1h", "1d")
         """
         try:
+            if self.is_synthetic_data:
+                self.logger.info(f"Synthetic data source selected; skipping warmup fetch for {resolution} resolution")
+                return
+
             self.logger.info(f"Loading warmup data for {resolution} resolution")
             
             # Load historical candles for warmup based on data source
@@ -661,6 +682,15 @@ class ExchangeAgent(Agent):
             await self.send_message(sender, MessageType.ERROR, {"error": f"Invalid window parameters: {e}"})
             return
 
+        if self.is_synthetic_data:
+            self.logger.debug(f"Synthetic data source selected; returning empty news window for {self.instrument}")
+            await self.send_message(
+                sender,
+                MessageType.NEWS_SNAPSHOT_RESPONSE,
+                {"instrument": self.instrument, "news": []}
+            )
+            return
+
         # Use Alpha Vantage for news if data_source is set to alpha_vantage, otherwise use Polygon.io
         news_client = self.alpha_vantage_client if self.data_source == "alpha_vantage" else self.polygon_client
 
@@ -990,4 +1020,3 @@ class ExchangeAgent(Agent):
 
             # Update indicators for the base resolution
             self.indicators_tracker.update(synthetic_candle)
-

@@ -41,9 +41,6 @@ from agents.benchmark_traders.macd_trader import MACDTrader
 from agents.benchmark_traders.random_trader import RandomTrader
 from agents.benchmark_traders.bollinger_bands_trader import BollingerBandsTrader
 from agents.benchmark_traders.slma_trader import SLMATrader
-from agents.aml.market_maker_trader import AMLMarketMakerTrader
-from agents.aml.retail_trader import AMLRetailTrader
-from agents.aml.institutional_trader import AMLInstitutionalTrader
 from simulation.simulation_clock import SimulationClock
 from utils.logging_setup import setup_logger
 from utils.time_utils import parse_datetime_utc, interval_to_seconds
@@ -58,10 +55,7 @@ AGENT_TYPE_MAPPING = {
     "Random_Trader": RandomTrader,
     "Bollinger_Bands_Trader": BollingerBandsTrader,
     "SLMA_Trader": SLMATrader,
-    "HistoricalOrderTrader": HistoricalOrderTrader,
-    "AML_Market_Maker": AMLMarketMakerTrader,
-    "AML_Retail_Trader": AMLRetailTrader,
-    "AML_Institutional_Trader": AMLInstitutionalTrader
+    "HistoricalOrderTrader": HistoricalOrderTrader
 }
 
 log_dir = os.getenv("LOG_DIR", "logs")
@@ -719,18 +713,6 @@ def main():
             "std_dev_multiplier": params.get("std_dev_multiplier", 2.0),
             "position_size_pct": params.get("position_size_pct", 0.05),
             "action_interval_seconds": interval_to_seconds(params["action_interval"]) if "action_interval" in params else params.get("action_interval_seconds", 86400)
-        },
-        "AML_Market_Maker": lambda params: {
-            **params,
-            "action_interval_seconds": interval_to_seconds(params["action_interval"]) if "action_interval" in params else params.get("action_interval_seconds", 60)
-        },
-        "AML_Retail_Trader": lambda params: {
-            **params,
-            "action_interval_seconds": interval_to_seconds(params["action_interval"]) if "action_interval" in params else params.get("action_interval_seconds", 60)
-        },
-        "AML_Institutional_Trader": lambda params: {
-            **params,
-            "action_interval_seconds": interval_to_seconds(params["action_interval"]) if "action_interval" in params else params.get("action_interval_seconds", 300)
         },
     }
 

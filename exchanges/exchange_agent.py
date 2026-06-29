@@ -458,10 +458,12 @@ class ExchangeAgent(Agent):
             # Send order confirmation to the submitting agent
             confirmation_payload = {
                 "order_id": order_id,
-                "status": "ACTIVE",
+                "status": order.status.value,
                 "instrument": self.instrument,
                 "side": side.value,
                 "quantity": quantity,
+                "remaining_quantity": order.quantity,
+                "filled_quantity": quantity - order.quantity,
                 "order_type": order_type.value,
                 "price": price,
                 "timestamp": timestamp.isoformat() if timestamp else None
@@ -834,9 +836,10 @@ class ExchangeAgent(Agent):
                 "role": Role.BUYER.value, 
                 "order_id": str(buy_order_id) if buy_order_id else None, 
                 "order_status": trade["buy_order_status"],
-                "explanation": buy_order.explanation if buy_order else None,
-                "is_short": buy_order.is_short if buy_order else False,
-                "is_short_cover": buy_order.is_short_cover if buy_order else False
+                "order_type": buy_order.order_type.value if buy_order else trade.get("buy_order_type"),
+                "explanation": buy_order.explanation if buy_order else trade.get("buy_explanation"),
+                "is_short": buy_order.is_short if buy_order else trade.get("buy_is_short", False),
+                "is_short_cover": buy_order.is_short_cover if buy_order else trade.get("buy_is_short_cover", False),
             }
             
             await self.send_message(buy_agent, MessageType.TRADE_EXECUTION, buy_payload)
@@ -851,9 +854,10 @@ class ExchangeAgent(Agent):
                 "role": Role.SELLER.value, 
                 "order_id": str(sell_order_id) if sell_order_id else None, 
                 "order_status": trade["sell_order_status"],
-                "explanation": sell_order.explanation if sell_order else None,
-                "is_short": sell_order.is_short if sell_order else False,
-                "is_short_cover": sell_order.is_short_cover if sell_order else False
+                "order_type": sell_order.order_type.value if sell_order else trade.get("sell_order_type"),
+                "explanation": sell_order.explanation if sell_order else trade.get("sell_explanation"),
+                "is_short": sell_order.is_short if sell_order else trade.get("sell_is_short", False),
+                "is_short_cover": sell_order.is_short_cover if sell_order else trade.get("sell_is_short_cover", False),
             }
             
             await self.send_message(sell_agent, MessageType.TRADE_EXECUTION, sell_payload)

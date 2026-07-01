@@ -524,10 +524,12 @@ class OrderBook:
                     buy_agent_id, sell_agent_id = market_order.agent_id, resting_order.agent_id
                     buy_order_id, sell_order_id = market_order.order_id, resting_order.order_id
                     buy_status, sell_status = market_order.status, resting_order.status
+                    buy_order, sell_order = market_order, resting_order
                 else:
                     buy_agent_id, sell_agent_id = resting_order.agent_id, market_order.agent_id
                     buy_order_id, sell_order_id = resting_order.order_id, market_order.order_id
                     buy_status, sell_status = resting_order.status, market_order.status
+                    buy_order, sell_order = resting_order, market_order
 
                 # Record the trade
                 self.record_trade(
@@ -539,7 +541,9 @@ class OrderBook:
                     buy_order_id=buy_order_id,
                     sell_order_id=sell_order_id,
                     buy_order_status=buy_status,
-                    sell_order_status=sell_status
+                    sell_order_status=sell_status,
+                    buy_order=buy_order,
+                    sell_order=sell_order,
                 )
 
                 # Remove filled resting order
@@ -559,6 +563,10 @@ class OrderBook:
         if market_order.quantity > 0:
             self.logger.warning(f"Market order {market_order.order_id} partially unfilled: "
                               f"{market_order.quantity} shares remaining")
+            market_order.status = OrderStatus.CANCELED
+
+        if market_order.order_id in self.orders_by_id:
+            del self.orders_by_id[market_order.order_id]
 
     def _match_limit_order(self, aggressor_side: Side):
         """
@@ -605,7 +613,9 @@ class OrderBook:
                         buy_order_id=bid_order.order_id,
                         sell_order_id=ask_order.order_id,
                         buy_order_status=bid_order.status,
-                        sell_order_status=ask_order.status
+                        sell_order_status=ask_order.status,
+                        buy_order=bid_order,
+                        sell_order=ask_order,
                     )
 
                     # Remove filled orders
@@ -643,7 +653,9 @@ class OrderBook:
         buy_order_id: Optional[uuid.UUID] = None,
         sell_order_id: Optional[uuid.UUID] = None,
         buy_order_status: Optional[OrderStatus] = None,
-        sell_order_status: Optional[OrderStatus] = None
+        sell_order_status: Optional[OrderStatus] = None,
+        buy_order: Optional[Order] = None,
+        sell_order: Optional[Order] = None,
     ):
         """
         Record a completed trade and update market statistics.
@@ -673,6 +685,14 @@ class OrderBook:
             "sell_order_id": sell_order_id,
             "buy_order_status": buy_order_status.value if buy_order_status else None,
             "sell_order_status": sell_order_status.value if sell_order_status else None,
+            "buy_order_type": buy_order.order_type.value if buy_order else None,
+            "sell_order_type": sell_order.order_type.value if sell_order else None,
+            "buy_explanation": buy_order.explanation if buy_order else None,
+            "sell_explanation": sell_order.explanation if sell_order else None,
+            "buy_is_short": buy_order.is_short if buy_order else False,
+            "sell_is_short": sell_order.is_short if sell_order else False,
+            "buy_is_short_cover": buy_order.is_short_cover if buy_order else False,
+            "sell_is_short_cover": sell_order.is_short_cover if sell_order else False,
             "seq": self.trade_seq_counter
         }
 
